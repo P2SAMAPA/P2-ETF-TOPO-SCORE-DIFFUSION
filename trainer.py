@@ -97,10 +97,21 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
 
     run_date = datetime.now().strftime("%Y-%m-%d")
 
+    # ── Engine configuration ──────────────────────────────────────────────────
     engine_config = {
-        **config.DIFFUSION,
-        **config.TDA,
-        **config.GUIDANCE,
+        # Diffusion parameters
+        "n_steps": config.DIFFUSION.get("n_steps", 50),
+        "n_samples": config.DIFFUSION.get("n_samples", 20),
+        "noise_scale": config.DIFFUSION.get("noise_scale", 0.1),
+        "n_epochs": config.DIFFUSION.get("n_epochs", 20),
+        
+        # TDA parameters
+        "max_dim": config.TDA.get("max_dimension", 1),
+        "persistence_threshold": config.TDA.get("persistence_threshold", 0.1),
+        
+        # Guidance parameters
+        "guidance_strength": config.GUIDANCE.get("guidance_strength", 0.5),
+        "target_regimes": config.GUIDANCE.get("target_regimes", ["CALM_SIDEWAYS", "CRASH_LOOP", "BULL_TREND"]),
     }
 
     results_tab1 = {"run_date": run_date, "universes": {}}
@@ -156,7 +167,7 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
         if not universe_results:
             continue
 
-        # Build Tab 1: Best window per ETF
+        # ── Build Tab 1: Best window per ETF ──────────────────────────────────
         best_window_per_etf = {}
         for ticker in available:
             best_z = -999
@@ -207,7 +218,7 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
                             [(t, safe_float(wr.get("results", {}).get(t, {}).get("z_score", 0)))
                              for t in available],
                             key=lambda x: x[1], reverse=True
-                        )[:5] if z != 0
+                        )[:5]
                     ],
                     "full_ranking": [
                         [
