@@ -1,0 +1,29 @@
+name: Daily Topo-Diffusion Run
+
+on:
+  schedule:
+    - cron: '50 23 * * 1-6'
+  workflow_dispatch:
+
+jobs:
+  run-topo-diffusion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run Topo-Diffusion Engine
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python trainer.py
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topo-diffusion-results
+          path: |
+            topo_diffusion_*.json
+            topo_diffusion_breakdown_*.json
