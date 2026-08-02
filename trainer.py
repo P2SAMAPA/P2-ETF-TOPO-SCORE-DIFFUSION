@@ -44,16 +44,13 @@ def safe_float(val, default=0.0):
 
 
 def get_action(z_score: float) -> str:
-    if z_score > 1.0:
-        return "STRONG BUY"
-    elif z_score > 0.5:
+    """Determine action based on z-score with lowered thresholds."""
+    if z_score > 0.15:
         return "BUY"
-    elif z_score > -0.5:
+    elif z_score > -0.15:
         return "HOLD"
-    elif z_score > -1.0:
-        return "REDUCE"
     else:
-        return "STRONG SELL"
+        return "SELL"
 
 
 def process_window(args: Tuple) -> Dict:
@@ -97,19 +94,13 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
 
     run_date = datetime.now().strftime("%Y-%m-%d")
 
-    # ── Engine configuration ──────────────────────────────────────────────────
     engine_config = {
-        # Diffusion parameters
         "n_steps": config.DIFFUSION.get("n_steps", 50),
         "n_samples": config.DIFFUSION.get("n_samples", 20),
         "noise_scale": config.DIFFUSION.get("noise_scale", 0.1),
         "n_epochs": config.DIFFUSION.get("n_epochs", 20),
-        
-        # TDA parameters
         "max_dim": config.TDA.get("max_dimension", 1),
         "persistence_threshold": config.TDA.get("persistence_threshold", 0.1),
-        
-        # Guidance parameters
         "guidance_strength": config.GUIDANCE.get("guidance_strength", 0.5),
         "target_regimes": config.GUIDANCE.get("target_regimes", ["CALM_SIDEWAYS", "CRASH_LOOP", "BULL_TREND"]),
     }
@@ -117,7 +108,6 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
     results_tab1 = {"run_date": run_date, "universes": {}}
     results_tab2 = {"run_date": run_date, "universes": {}}
 
-    # ── Prepare parallel tasks ───────────────────────────────────────────────
     tasks = []
     windows = config.WINDOWS
     max_workers = max(1, int(mp.cpu_count() * 0.75))
@@ -131,7 +121,6 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
         for window in windows:
             tasks.append((window, universe_name, available, prices_df, engine_config))
 
-    # ── Run parallel processing ──────────────────────────────────────────────
     logger.info(f"📋 Total tasks: {len(tasks)}")
     all_results = {}
 
@@ -153,7 +142,6 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
 
     logger.info(f"✅ Completed {len(all_results)}/{len(tasks)} tasks")
 
-    # ── Build results ──────────────────────────────────────────────────────────
     for universe_name in config.UNIVERSES.keys():
         available = [t for t in config.UNIVERSES[universe_name] if t in prices_df.columns]
         if not available:
@@ -167,7 +155,6 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
         if not universe_results:
             continue
 
-        # ── Build Tab 1: Best window per ETF ──────────────────────────────────
         best_window_per_etf = {}
         for ticker in available:
             best_z = -999
@@ -208,7 +195,6 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
             "full_scores": best_window_per_etf
         }
 
-        # ── Tab 2: Per-window breakdown ───────────────────────────────────────
         results_tab2["universes"][universe_name] = {
             "windows": {
                 window: {
@@ -235,7 +221,6 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
 
         logger.info(f"   ✅ {universe_name}: {len(best_window_per_etf)} ETFs ranked")
 
-    # ── Save JSON ─────────────────────────────────────────────────────────────
     logger.info("\n💾 Saving JSON results...")
     tab1_path = f"topo_diffusion_{run_date}.json"
     tab2_path = f"topo_diffusion_breakdown_{run_date}.json"
@@ -248,7 +233,6 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
     logger.info(f"   Saved: {tab1_path}")
     logger.info(f"   Saved: {tab2_path}")
 
-    # ── Upload ─────────────────────────────────────────────────────────────────
     if token:
         logger.info("\n📤 Uploading results to HuggingFace...")
         try:
