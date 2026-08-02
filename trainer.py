@@ -160,4 +160,102 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
         best_window_per_etf = {}
         for ticker in available:
             best_z = -999
-           
+            best_win = None
+            best_data = None
+            for window, wr in universe_results.items():
+                ticker_data = wr.get("results", {}).get(ticker, {})
+                z = safe_float(ticker_data.get("z_score", -999))
+                if z > best_z:
+                    best_z = z
+                    best_win = window
+                    best_data = ticker_data
+            if best_win is not None:
+                best_window_per_etf[ticker] = {
+                    "z_score": best_z,
+                    "window": int(best_win),
+                    "n_paths": int(safe_float(best_data.get("n_paths", 0))),
+                    "n_regimes": int(safe_float(best_data.get("n_regimes", 0))),
+                    "action": get_action(best_z)
+                }
+
+        if not best_window_per_etf:
+            continue
+
+        top_buys = sorted(
+            [(t, d["z_score"]) for t, d in best_window_per_etf.items()],
+            key=lambda x: x[1], reverse=True
+        )[:5]
+
+        top_sells = sorted(
+            [(t, d["z_score"]) for t, d in best_window_per_etf.items()],
+            key=lambda x: x[1]
+        )[:5]
+
+        results_tab1["universes"][universe_name] = {
+            "top_buys": [{"ticker": t, "z_score": z} for t, z in top_buys],
+            "top_sells": [{"ticker": t, "z_score": z} for t, z in top_sells],
+            "full_scores": best_window_per_etf
+        }
+
+        # ── Tab 2: Per-window breakdown ───────────────────────────────────────
+        results_tab2["universes"][universe_name] = {
+            "windows": {
+                window: {
+                    "top_buys": [
+                        {"ticker": t, "z_score": z}
+                        for t, z in sorted(
+                            [(t, safe_float(wr.get("results", {}).get(t, {}).get("z_score", 0)))
+                             for t in available],
+                            key=lambda x: x[1], reverse=True
+                        )[:5] if z != 0
+                    ],
+                    "full_ranking": [
+                        [
+                            t,
+                            safe_float(wr.get("results", {}).get(t, {}).get("z_score", 0)),
+                            get_action(safe_float(wr.get("results", {}).get(t, {}).get("z_score", 0)))
+                        ]
+                        for t in available
+                    ]
+                }
+                for window, wr in universe_results.items()
+            }
+        }
+
+        logger.info(f"   ✅ {universe_name}: {len(best_window_per_etf)} ETFs ranked")
+
+    # ── Save JSON ─────────────────────────────────────────────────────────────
+    logger.info("\n💾 Saving JSON results...")
+    tab1_path = f"topo_diffusion_{run_date}.json"
+    tab2_path = f"topo_diffusion_breakdown_{run_date}.json"
+
+    with open(tab1_path, "w") as f:
+        json.dump(results_tab1, f, indent=2, default=str)
+    with open(tab2_path, "w") as f:
+        json.dump(results_tab2, f, indent=2, default=str)
+
+    logger.info(f"   Saved: {tab1_path}")
+    logger.info(f"   Saved: {tab2_path}")
+
+    # ── Upload ─────────────────────────────────────────────────────────────────
+    if token:
+        logger.info("\n📤 Uploading results to HuggingFace...")
+        try:
+            api = HfApi(token=token)
+            for path in [tab1_path, tab2_path]:
+                api.upload_file(
+                    path_or_fileobj=path,
+                    path_in_repo=path,
+                    repo_id=config.RESULTS_REPO,
+                    token=token,
+                    repo_type="dataset"
+                )
+            logger.info("   ✅ Upload complete!")
+        except Exception as e:
+            logger.error(f"   Upload failed: {e}")
+
+    return {"tab1": results_tab1, "tab2": results_tab2}
+
+
+if __name__ == "__main__":
+    run_trainer()
