@@ -1,9 +1,6 @@
 """
 trainer.py  —  Orchestrator for Topo-Score-Diffusion Engine
 ============================================================
-
-Loads data → trains diffusion models → generates paths → builds JSON.
-Uses parallel processing for speed.
 """
 
 import os
@@ -44,17 +41,19 @@ def safe_float(val, default=0.0):
 
 
 def get_action(z_score: float) -> str:
-    """Determine action based on z-score with lowered thresholds."""
-    if z_score > 0.15:
+    """
+    Determine action based on z-score.
+    Top 20% = BUY, Bottom 20% = SELL
+    """
+    if z_score > 0.08:
         return "BUY"
-    elif z_score > -0.15:
+    elif z_score > -0.08:
         return "HOLD"
     else:
         return "SELL"
 
 
 def process_window(args: Tuple) -> Dict:
-    """Process a single window for a universe in parallel."""
     window, universe_name, available, prices_df, config_dict = args
     
     try:
@@ -77,7 +76,6 @@ def process_window(args: Tuple) -> Dict:
 
 
 def run_trainer(hf_token: Optional[str] = None) -> Dict:
-    """Run the full Topo-Score-Diffusion pipeline."""
     token = hf_token or config.HF_TOKEN or os.environ.get("HF_TOKEN")
     if not token:
         logger.warning("HF_TOKEN not set — will skip HuggingFace upload.")
@@ -155,6 +153,7 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
         if not universe_results:
             continue
 
+        # ── Build Tab 1 ──────────────────────────────────────────────────────
         best_window_per_etf = {}
         for ticker in available:
             best_z = -999
@@ -168,12 +167,14 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
                     best_win = window
                     best_data = ticker_data
             if best_win is not None:
+                # Compute action based on z-score
+                action = get_action(best_z)
                 best_window_per_etf[ticker] = {
                     "z_score": best_z,
                     "window": int(best_win),
                     "n_paths": int(safe_float(best_data.get("n_paths", 0))),
                     "n_regimes": int(safe_float(best_data.get("n_regimes", 0))),
-                    "action": get_action(best_z)
+                    "action": action
                 }
 
         if not best_window_per_etf:
@@ -195,6 +196,7 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
             "full_scores": best_window_per_etf
         }
 
+        # ── Build Tab 2 ──────────────────────────────────────────────────────
         results_tab2["universes"][universe_name] = {
             "windows": {
                 window: {
@@ -221,6 +223,7 @@ def run_trainer(hf_token: Optional[str] = None) -> Dict:
 
         logger.info(f"   ✅ {universe_name}: {len(best_window_per_etf)} ETFs ranked")
 
+    # ── Save JSON ─────────────────────────────────────────────────────────────
     logger.info("\n💾 Saving JSON results...")
     tab1_path = f"topo_diffusion_{run_date}.json"
     tab2_path = f"topo_diffusion_breakdown_{run_date}.json"
